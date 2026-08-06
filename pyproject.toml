@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canton-fair-commute-alert"
+version = "1.0.0"
+description = "Deterministic Canton Fair next-day commute alerts"
+requires-python = ">=3.8"
+dependencies = [
+  "requests>=2.28,<3",
+  "beautifulsoup4>=4.11,<5",
+  "lxml>=4.9,<6",
+  "python-dotenv>=0.21,<2",
+  "backports.zoneinfo>=0.2.1; python_version < '3.9'",
+]
+
+[project.scripts]
+canton-fair-alert = "canton_fair_alert.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.mypy]
+python_version = "3.8"
+packages = ["canton_fair_alert"]
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = false

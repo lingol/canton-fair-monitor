@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Canton Fair next-day commute alert
+
+[Timer]
+OnCalendar=*-*-* @ALERT_SEND_TIME@:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+RandomizedDelaySec=2min
+Unit=canton-fair-alert.service
+
+[Install]
+WantedBy=timers.target

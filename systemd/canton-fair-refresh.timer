@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Canton Fair official schedule refresh
+
+[Timer]
+OnCalendar=*-*-* @SCHEDULE_REFRESH_TIME@:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+RandomizedDelaySec=2min
+Unit=canton-fair-refresh.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,19 @@
+[Unit]
+Description=Canton Fair next-day commute alerts
+After=network-online.target canton-fair-refresh.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cantonfair
+Group=cantonfair
+UMask=0007
+EnvironmentFile=/etc/canton-fair-alert/app.env
+WorkingDirectory=/opt/canton-fair-alert/app
+ExecStart=/opt/canton-fair-alert/venv/bin/python -m canton_fair_alert alert
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/canton-fair-alert
+ReadOnlyPaths=/etc/canton-fair-alert

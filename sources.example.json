@@ -1,0 +1,10 @@
+{
+  "sources": [
+    {
+      "name": "cantonfair_official_primary",
+      "url": "https://cief.cantonfair.org.cn/en/cfintro/cfintro.html",
+      "enabled": true,
+      "priority": 1
+    }
+  ]
+}
