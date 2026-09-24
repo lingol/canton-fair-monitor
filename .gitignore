@@ -13,3 +13,4 @@ build/
 dist/
 *.egg-info/
 snapshots/
+plan.md

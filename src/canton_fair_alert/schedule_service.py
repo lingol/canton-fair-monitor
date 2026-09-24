@@ -48,7 +48,7 @@ class ScheduleService:
     def _refresh_source(
         self, source: SourceConfig, force: bool, accept_official: bool
     ) -> List[FairWindow]:
-        conditional = {} if force else self._conditional_headers(source.name)
+        conditional = {} if force else self._conditional_headers(source.name, source.url)
         result = self.fetcher.fetch(source.url, conditional)
         if result.not_modified:
             self._set_state("last_successful_fetch", utc_now_iso())
@@ -240,7 +240,12 @@ class ScheduleService:
             ],
         }
 
-    def _conditional_headers(self, source_name: str) -> Dict[str, str]:
+    def _conditional_headers(self, source_name: str, source_url: str) -> Dict[str, str]:
+        cached_url = self.database.query_one(
+            "SELECT value FROM app_state WHERE key=?", (f"http_source_url:{source_name}",)
+        )
+        if not cached_url or cached_url["value"] != source_url:
+            return {}
         headers = {}
         for header, key in (
             ("If-None-Match", "http_etag"),
@@ -249,7 +254,7 @@ class ScheduleService:
             row = self.database.query_one(
                 "SELECT value FROM app_state WHERE key=?", (f"{key}:{source_name}",)
             )
-            if row:
+            if row and row["value"]:
                 headers[header] = row["value"]
         return headers
 
@@ -257,11 +262,10 @@ class ScheduleService:
         values = {
             "last_successful_fetch": utc_now_iso(),
             "last_official_hash": digest,
+            f"http_source_url:{source_name}": result.url,
+            f"http_etag:{source_name}": result.etag or "",
+            f"http_last_modified:{source_name}": result.last_modified or "",
         }
-        if result.etag:
-            values[f"http_etag:{source_name}"] = result.etag
-        if result.last_modified:
-            values[f"http_last_modified:{source_name}"] = result.last_modified
         with self.database.transaction() as connection:
             for key, value in values.items():
                 now = utc_now_iso()

@@ -10,7 +10,8 @@ from dotenv import dotenv_values
 from canton_fair_alert._compat import ZoneInfo
 
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-DEFAULT_OFFICIAL_URL = "https://cief.cantonfair.org.cn/en/cfintro/cfintro.html"
+DEFAULT_OFFICIAL_URL = "https://hk.cantonfair.org.cn/en/"
+RETIRED_OFFICIAL_URL = "https://cief.cantonfair.org.cn/en/cfintro/cfintro.html"
 OFFICIAL_DOMAINS = ("cantonfair.org.cn", "cief.org.cn")
 
 
@@ -121,7 +122,12 @@ def load_sources(path: Path) -> List[SourceConfig]:
         sources = [
             SourceConfig(
                 name=str(item["name"]),
-                url=str(item["url"]),
+                # Upgrade the retired bundled source without rewriting administrator config.
+                url=(
+                    DEFAULT_OFFICIAL_URL
+                    if item["url"] == RETIRED_OFFICIAL_URL
+                    else str(item["url"])
+                ),
                 enabled=bool(item.get("enabled", True)),
                 priority=int(item.get("priority", 1)),
             )

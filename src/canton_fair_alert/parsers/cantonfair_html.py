@@ -2,6 +2,7 @@ import json
 import re
 from datetime import date
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
@@ -13,7 +14,12 @@ class ParseError(ValueError):
 
 
 class CantonFairHtmlParser:
-    version = "1.0"
+    version = "1.1"
+    _calendar_title = re.compile(
+        r"\b(?:The\s+)?(\d+)(?:st|nd|rd|th)\s+Canton\s+Fair\s*"
+        r"[（(]\s*Phase\s*(\d+)\s*[）)]\s*$",
+        re.I,
+    )
     _phase_pattern = re.compile(r"(?:第\s*([一二三123])\s*期|Phase\s*([123]))", re.I)
     _full_range = re.compile(
         r"(20\d{2})\s*(?:年|[-/.])\s*(1[0-2]|0?[1-9])\s*(?:月|[-/.])\s*"
@@ -50,7 +56,31 @@ class CantonFairHtmlParser:
     }
 
     def parse(self, html: bytes, source_name: str, source_url: str) -> Sequence[FairWindow]:
-        soup = BeautifulSoup(html, "lxml")
+        is_hk_calendar = urlparse(source_url).hostname == "hk.cantonfair.org.cn"
+        if is_hk_calendar:
+            # This site currently serves GB18030 bytes despite declaring UTF-8.
+            # Prefer valid UTF-8 when the publisher corrects its encoding.
+            try:
+                decoded = html.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                try:
+                    decoded = html.decode("gb18030")
+                except UnicodeDecodeError as exc:
+                    raise ParseError("unsupported official calendar character encoding") from exc
+            soup = BeautifulSoup(decoded, "lxml")
+        else:
+            soup = BeautifulSoup(html, "lxml")
+        page_text = soup.get_text(" ", strip=True)
+        if re.search(r"\b404\b", page_text) and re.search(
+            r"page\s+not\s+found|页面不存在|页面不存在或者已删除", page_text, re.I
+        ):
+            raise ParseError("official source returned a soft 404 (Page not found)")
+        calendar_results = self._parse_calendar(soup, source_name, source_url)
+        if calendar_results:
+            # An incomplete calendar must fail validation, not fall back to old article dates.
+            return calendar_results
+        if is_hk_calendar:
+            raise ParseError("no Canton Fair exhibition calendar rows found")
         edition = self._edition(soup.get_text(" ", strip=True))
         dom_results = self._parse_dom(soup, edition, source_name, source_url)
         if len(dom_results) == 3:
@@ -64,6 +94,34 @@ class CantonFairHtmlParser:
         if not text_results:
             raise ParseError("no deterministic phase/date ranges found")
         return text_results
+
+    def _parse_calendar(
+        self, soup: BeautifulSoup, source_name: str, source_url: str
+    ) -> List[FairWindow]:
+        """Read row-local dates/edition from the official HK office's exhibition calendar."""
+        by_phase: Dict[int, FairWindow] = {}
+        for row in soup.select("li > a"):
+            title = self._calendar_title.search(row.get_text(" ", strip=True))
+            if title is None:
+                continue
+            date_node = row.select_one("span.date")
+            date_range = (
+                self._full_range.fullmatch(date_node.get_text(" ", strip=True))
+                if date_node is not None
+                else None
+            )
+            if date_range is None:
+                raise ParseError("Canton Fair calendar row has no explicit date range with year")
+            try:
+                start, end = self._dates(date_range.groups())
+            except ValueError as exc:
+                raise ParseError("Canton Fair calendar row contains an invalid date") from exc
+            edition, phase = map(int, title.groups())
+            window = self._window(edition, phase, start, end, source_name, source_url)
+            if phase in by_phase and by_phase[phase] != window:
+                raise ParseError(f"conflicting Canton Fair calendar rows for phase {phase}")
+            by_phase[phase] = window
+        return [by_phase[phase] for phase in sorted(by_phase)]
 
     def _parse_dom(
         self,

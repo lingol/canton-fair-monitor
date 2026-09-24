@@ -1,8 +1,10 @@
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
+from canton_fair_alert.config import DEFAULT_OFFICIAL_URL, RETIRED_OFFICIAL_URL
 from canton_fair_alert.fetchers.base import FetchResult
 from canton_fair_alert.schedule_service import ScheduleService, ScheduleServiceError
 
@@ -87,3 +89,59 @@ def manual_payload():
             {"phase": 3, "start_date": "2026-10-31", "end_date": "2026-11-04"},
         ],
     }
+
+
+def test_old_installation_refresh_migrates_source_and_replaces_spring(settings, database):
+    service = ScheduleService(settings, database)
+    spring_html = b"""<h2>The 139th (Spring)</h2>
+    <p>Phase 1: April 15-19, 2026</p><p>Phase 2: April 23-27, 2026</p>
+    <p>Phase 3: May 1-5, 2026</p>"""
+    spring = service.parser.parse(spring_html, "cantonfair_official_primary", RETIRED_OFFICIAL_URL)
+    service.replace_active(spring, "spring-hash")
+    service._set_state("http_etag:cantonfair_official_primary", '"old-etag"')
+    service._set_state("http_last_modified:cantonfair_official_primary", "old-date")
+    settings.sources_file.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "name": "cantonfair_official_primary",
+                        "url": RETIRED_OFFICIAL_URL,
+                    }
+                ]
+            }
+        )
+    )
+    body = (FIXTURES / "official_hk_calendar.html").read_text().encode("gb18030")
+
+    class CalendarFetcher:
+        def __init__(self):
+            self.calls = []
+
+        def fetch(self, url, conditional_headers):
+            self.calls.append((url, conditional_headers))
+            return FetchResult(url, url, 200, "text/html", body, '"calendar-etag"', None)
+
+    fetcher = CalendarFetcher()
+    service = ScheduleService(settings, database, fetcher=fetcher)
+    windows = service.refresh()
+    assert fetcher.calls == [(DEFAULT_OFFICIAL_URL, {})]
+    assert len(windows) == 3
+    assert {w.edition for w in windows} == {140}
+    assert {w.source_url for w in service.active_windows()} == {DEFAULT_OFFICIAL_URL}
+    service.refresh()
+    assert fetcher.calls[-1][1] == {"If-None-Match": '"calendar-etag"'}
+    assert (
+        database.query_one("SELECT COUNT(*) AS n FROM fair_schedules WHERE is_active=1")["n"] == 3
+    )
+
+
+def test_soft_404_preserves_schedule_and_saves_snapshot(settings, database):
+    service = ScheduleService(settings, database)
+    service.import_payload(manual_payload())
+    before = service.active_windows()
+    service.fetcher = FakeFetcher((FIXTURES / "official_page_soft_404.html").read_bytes())
+    with pytest.raises(ScheduleServiceError, match="soft 404"):
+        service.refresh(force=True)
+    assert service.active_windows() == before
+    assert len(list(settings.snapshot_dir.glob("failure-*.html"))) == 1
